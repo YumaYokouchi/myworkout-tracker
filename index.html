@@ -178,6 +178,12 @@
   .set-panel{display:none;}
   .set-panel.active{display:block;}
   .back-link{font-size:13px; color:var(--accent); font-weight:600; cursor:pointer; display:inline-block; margin-bottom:10px;}
+  .nav-back-row{ display:flex; justify-content:flex-start; margin-bottom:12px; }
+  .nav-back{
+    font-size:14px; color:var(--accent); font-weight:700; cursor:pointer;
+    display:inline-flex; align-items:center; gap:2px;
+    padding:9px 16px; border-radius:18px; background:var(--accent-light);
+  }
   .copy-prev{
     display:flex; align-items:center; justify-content:space-between; background:var(--accent-light);
     border-radius:12px; padding:10px 12px; margin-bottom:14px; font-size:12px; color:var(--accent); font-weight:600; cursor:pointer;
@@ -191,7 +197,7 @@
   .stepper .val{font-size:20px; font-weight:800; min-width:74px; text-align:center; line-height:1.15;}
   .val-sub{font-size:11px; color:var(--sub); font-weight:600; display:block;}
   .wheel-wrap{ position:relative; height:120px; margin:0 0 14px; }
-  .wheel-pair{ display:flex; align-items:center; justify-content:center; height:120px; gap:2px; }
+  .wheel-pair{ display:flex; align-items:center; justify-content:flex-end; height:120px; gap:2px; }
   .wheel-picker{
     height:120px; overflow-y:scroll; scroll-snap-type:y mandatory;
     -webkit-overflow-scrolling:touch; scrollbar-width:none; -ms-overflow-style:none;
@@ -244,6 +250,8 @@
   .hand-btn.active{ background:var(--accent); color:var(--accent-text); border-color:var(--accent); }
   .phone[data-hand="left"] .stepper-row{ flex-direction:row-reverse; }
   .phone[data-hand="left"] .quick-rep-row{ justify-content:flex-start; }
+  .phone[data-hand="left"] .nav-back-row{ justify-content:flex-end; }
+  .phone[data-hand="left"] .wheel-pair{ justify-content:flex-start; }
   .note-input-inline{
     width:100%; border:1.5px solid var(--border); border-radius:10px; padding:9px 11px; font-size:12px;
     font-family:inherit; background:var(--card-alt); color:var(--text); margin-bottom:6px;
@@ -522,7 +530,9 @@
     </div>
 
     <div id="record-set-view" class="set-panel">
-      <span class="back-link" onclick="backToList()">‹ 種目一覧</span>
+      <div class="nav-back-row">
+        <span class="nav-back" onclick="backToList()">‹ 種目一覧</span>
+      </div>
       <div class="topbar" style="padding-top:0;">
         <h2 id="set-exercise-name">ベンチプレス</h2>
       </div>
