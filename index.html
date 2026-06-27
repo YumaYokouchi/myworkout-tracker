@@ -418,12 +418,7 @@
 
   <!-- HOME -->
   <div class="screen page active" id="page-home">
-    <div class="topbar">
-      <h2>こんにちは 👋</h2>
-      <p>今日も1回、記録してみましょう</p>
-    </div>
-
-    <div class="card">
+    <div class="card" style="margin-top:8px;">
       <h3>今週のサマリー</h3>
       <div class="stat-row">
         <div class="stat-box"><div class="num" id="stat-days">0</div><div class="lbl">トレ日数/7日</div></div>
@@ -545,7 +540,7 @@
 
       <div class="card">
         <div class="stepper-row">
-          <span class="stepper-label">重量</span>
+          <span class="stepper-label" id="weight-stepper-label">重量</span>
           <div class="stepper">
             <button onclick="changeVal('weight',-1.25)">−</button>
             <span class="val" id="weight-val">0<span class="val-sub" id="weight-val-lb">(0lb)</span></span>
@@ -578,7 +573,7 @@
             <button onclick="changeVal('reps',1)">＋</button>
           </div>
         </div>
-        <div class="rm-estimate-row">
+        <div class="rm-estimate-row" id="rm-estimate-row">
           <span class="rm-estimate-label">推定1RM <span class="info-badge" onclick="toggleRMInfo()">？</span></span>
           <span class="rm-estimate-val" id="rm-estimate-val">-</span>
         </div>
@@ -696,6 +691,7 @@ const CATS = [
   {key:"abs", label:"腹筋", color:"var(--abs)"},
 ];
 // equip: "machine"(マシン) / "free"(フリーウェイト) / "body"(自重)
+// assist:true の種目はアシストマシン（サポート重量が減るほど記録更新、自重に近づくほど高負荷）
 const EQUIP_TYPES = [
   {key:"all", label:"すべて"},
   {key:"machine", label:"マシン"},
@@ -714,6 +710,7 @@ const EXERCISES = {
     {name:"ケーブルクロスオーバー", equip:"machine", last:{weight:15, reps:12}},
     {name:"プッシュアップ", equip:"body", last:{weight:0, reps:15}},
     {name:"ディップス", equip:"body", last:{weight:0, reps:10}},
+    {name:"アシストディップマシン", equip:"machine", assist:true, last:{weight:15, reps:10}},
   ],
   back: [
     {name:"デッドリフト", equip:"free", last:{weight:80, reps:8}},
@@ -724,6 +721,7 @@ const EXERCISES = {
     {name:"Tバーロウ", equip:"machine", last:{weight:30, reps:10}},
     {name:"懸垂（プルアップ）", equip:"body", last:{weight:0, reps:8}},
     {name:"逆手懸垂（チンニング）", equip:"body", last:{weight:0, reps:8}},
+    {name:"アシストチンニングマシン", equip:"machine", assist:true, last:{weight:20, reps:8}},
   ],
   legs: [
     {name:"スクワット", equip:"free", last:{weight:70, reps:8}},
@@ -824,28 +822,39 @@ function renderLogDateLabel(){
   todayBtn.style.display = (selectedDateKey === todayKey) ? "none" : "inline";
 }
 function saveLog(){ localStorage.setItem(STORAGE_KEYS.log, JSON.stringify(workoutLog)); }
-function logSet(cat, name, weight, reps, note, isPR){
+function logSet(cat, name, weight, reps, note, isPR, rm){
   const key = selectedDateKey;
   if(!workoutLog[key]) workoutLog[key] = [];
-  workoutLog[key].push({cat, name, weight, reps, note: note || "", pr: !!isPR, rm: calc1RM(weight, reps)});
+  workoutLog[key].push({cat, name, weight, reps, note: note || "", pr: !!isPR, rm: rm || 0});
   saveLog();
 }
 function getPRs(){ return JSON.parse(localStorage.getItem(STORAGE_KEYS.pr) || "{}"); }
-function checkAndSavePR(name, weight){
+// PR保存形式は {weight, reps} のペア。以前の数値のみの形式（重量だけ保存）にも後方互換対応。
+function normalizePR(prev){
+  if(prev == null) return null;
+  if(typeof prev === "number") return {weight: prev, reps: 0};
+  return prev;
+}
+// assist=true（アシストマシン）はサポート重量が「減るほど」記録更新。
+// それ以外は重量が増えるか、同重量でレップ数が増えれば記録更新（自重0kgのレップ数改善も記録対象になる）。
+function checkAndSavePR(name, weight, reps, assist){
   const prs = getPRs();
-  const prev = prs[name] || 0;
-  if(weight > prev){
-    prs[name] = weight;
+  const prevRaw = prs[name];
+  const prev = normalizePR(prevRaw) || {weight: assist ? Infinity : 0, reps: 0};
+  const improved = assist
+    ? (weight < prev.weight) || (weight === prev.weight && reps > prev.reps)
+    : (weight > prev.weight) || (weight === prev.weight && reps > prev.reps);
+  if(improved || !prevRaw){
+    prs[name] = {weight, reps};
     localStorage.setItem(STORAGE_KEYS.pr, JSON.stringify(prs));
-    return true;
   }
-  return false;
+  return improved;
 }
 function seedPRsIfEmpty(){
   if(Object.keys(getPRs()).length > 0) return;
   const seeded = {};
   Object.keys(EXERCISES).forEach(cat=>{
-    EXERCISES[cat].forEach(ex=>{ seeded[ex.name] = ex.last.weight; });
+    EXERCISES[cat].forEach(ex=>{ seeded[ex.name] = {weight: ex.last.weight, reps: ex.last.reps}; });
   });
   localStorage.setItem(STORAGE_KEYS.pr, JSON.stringify(seeded));
 }
@@ -891,6 +900,18 @@ function weightStepperHTML(kg){
   const m = mainSubWeight(kg);
   return `${m.main}<span class="val-sub">(${m.sub}${m.subUnit})</span>`;
 }
+// 種目を考慮した重量の文章表示。自重種目は「自重+Xkg」、アシストマシンは「サポートXkg」と表記する。
+function exerciseWeightProse(ex, kg){
+  if(ex && ex.assist) return `サポート${weightProseText(kg)}`;
+  if(ex && ex.equip === "body") return `自重+${weightProseText(kg)}`;
+  return weightProseText(kg);
+}
+// 重量ステッパーの小ラベル（「重量」の代わりに種目に応じた表記を返す）
+function weightStepperLabel(ex){
+  if(ex && ex.assist) return "サポート重量";
+  if(ex && ex.equip === "body") return "自重 + 追加重量";
+  return "重量";
+}
 function calc1RM(weight, reps){
   if(!weight || !reps || reps<=0) return 0;
   if(reps===1) return Math.round(weight*10)/10;
@@ -902,8 +923,16 @@ function rmShortText(kg){
   return `${m.main}${m.mainUnit}`;
 }
 function updateRMEstimate(){
+  const row = document.getElementById("rm-estimate-row");
+  const infoBox = document.getElementById("rm-info-box");
   const el = document.getElementById("rm-estimate-val");
   if(!el) return;
+  if(currentExercise && currentExercise.assist){
+    if(row) row.style.display = "none";
+    if(infoBox) infoBox.style.display = "none";
+    return;
+  }
+  if(row) row.style.display = "";
   const rm = calc1RM(stepVal.weight, stepVal.reps);
   el.textContent = rm ? rmShortText(rm) : "-";
 }
@@ -1282,8 +1311,8 @@ function renderExerciseList(){
       <div class="left">
         <span class="cat-dot" style="background:${cat.color}"></span>
         <div>
-          <div class="name">${ex.name}<span class="equip-tag">${equipLabel(ex.equip)}</span></div>
-          <div class="last">前回: ${weightProseText(ex.last.weight)} × ${ex.last.reps}回${ex.last.note ? ' ・ '+escapeHtml(ex.last.note) : ''}</div>
+          <div class="name">${ex.name}<span class="equip-tag">${ex.assist ? "アシスト" : equipLabel(ex.equip)}</span></div>
+          <div class="last">前回: ${exerciseWeightProse(ex, ex.last.weight)} × ${ex.last.reps}回${ex.last.note ? ' ・ '+escapeHtml(ex.last.note) : ''}</div>
         </div>
       </div>
       <span class="chevron">›</span>
@@ -1331,8 +1360,9 @@ function openExercise(ex){
   currentSets = [];
   stepVal = {weight: currentExercise.last.weight || 0, reps:0};
   document.getElementById("set-exercise-name").textContent = currentExercise.name;
-  document.getElementById("prev-summary").textContent = `${weightProseText(currentExercise.last.weight)} × ${currentExercise.last.reps}回`;
+  document.getElementById("prev-summary").textContent = `${exerciseWeightProse(currentExercise, currentExercise.last.weight)} × ${currentExercise.last.reps}回`;
   document.getElementById("exercise-note").value = currentExercise.last.note || "";
+  document.getElementById("weight-stepper-label").textContent = weightStepperLabel(currentExercise);
   document.getElementById("record-list-view").style.display = "none";
   document.getElementById("record-set-view").classList.add("active");
   updateWeightDisplay();
@@ -1383,23 +1413,25 @@ function changeVal(key, delta){
 }
 function addSet(){
   const note = document.getElementById("exercise-note").value.trim();
-  const isPR = stepVal.weight > 0 && checkAndSavePR(currentExercise.name, stepVal.weight);
-  const rm = calc1RM(stepVal.weight, stepVal.reps);
+  const isAssist = !!currentExercise.assist;
+  const isPR = checkAndSavePR(currentExercise.name, stepVal.weight, stepVal.reps, isAssist);
+  const rm = isAssist ? 0 : calc1RM(stepVal.weight, stepVal.reps);
   currentSets.push({weight:stepVal.weight, reps:stepVal.reps, done:false, pr:isPR, rm});
   renderSetList();
   startTimer();
-  logSet(activeCat, currentExercise.name, stepVal.weight, stepVal.reps, note, isPR);
+  logSet(activeCat, currentExercise.name, stepVal.weight, stepVal.reps, note, isPR, rm);
   saveLastValue(currentExercise.name, stepVal.weight, stepVal.reps, note);
   currentExercise.last = {weight:stepVal.weight, reps:stepVal.reps, note};
   renderTodayDone();
-  if(isPR) celebratePR(`🏆 自己ベスト更新！\n${currentExercise.name} ${stepVal.weight}kg`);
+  if(isPR) celebratePR(`🏆 自己ベスト更新！\n${currentExercise.name} ${exerciseWeightProse(currentExercise, stepVal.weight)} × ${stepVal.reps}回`);
 }
 function renderSetList(){
   const wrap = document.getElementById("set-list");
+  const isAssist = !!(currentExercise && currentExercise.assist);
   wrap.innerHTML = currentSets.map((s,i)=>`
     <div class="set-row">
       <span class="set-no">セット${i+1}</span>
-      <span>${weightProseText(s.weight)} × ${s.reps}回${s.pr?' 🏆':''}<span class="set-rm">推定1RM ${rmShortText(s.rm)}</span></span>
+      <span>${exerciseWeightProse(currentExercise, s.weight)} × ${s.reps}回${s.pr?' 🏆':''}${isAssist?'':`<span class="set-rm">推定1RM ${rmShortText(s.rm)}</span>`}</span>
       <span class="check ${s.done?'done':''}" onclick="toggleDone(${i})">${s.done?'✓':''}</span>
     </div>`).join("");
 }
