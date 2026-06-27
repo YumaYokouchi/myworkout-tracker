@@ -219,6 +219,18 @@
     position:absolute; left:0; right:0; bottom:0; height:40px; border-radius:0 0 16px 16px;
     background:linear-gradient(to top, var(--card) 0%, transparent 100%); pointer-events:none;
   }
+  .rm-estimate-row{display:flex; align-items:center; justify-content:space-between; margin:-4px 0 12px;}
+  .rm-estimate-label{font-size:11.5px; color:var(--sub); font-weight:600; display:flex; align-items:center; gap:5px;}
+  .rm-estimate-val{font-size:13px; font-weight:800; color:var(--text);}
+  .info-badge{
+    width:15px; height:15px; border-radius:50%; border:1.5px solid var(--border-soft); color:var(--sub);
+    font-size:10px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; flex:0 0 auto;
+  }
+  .rm-info-box{
+    font-size:11px; color:var(--sub); line-height:1.6; background:var(--card-alt); border-radius:10px;
+    padding:9px 11px; margin:-2px 0 14px;
+  }
+  .set-rm{font-size:10.5px; color:var(--sub); display:block; margin-top:2px; font-weight:600;}
   .quick-rep-row{ display:flex; gap:8px; justify-content:flex-end; margin:-6px 0 14px; }
   .quick-btn{
     padding:6px 14px; border-radius:14px; border:1.5px solid var(--border); background:var(--card-alt);
@@ -566,6 +578,13 @@
             <button onclick="changeVal('reps',1)">＋</button>
           </div>
         </div>
+        <div class="rm-estimate-row">
+          <span class="rm-estimate-label">推定1RM <span class="info-badge" onclick="toggleRMInfo()">？</span></span>
+          <span class="rm-estimate-val" id="rm-estimate-val">-</span>
+        </div>
+        <div class="rm-info-box" id="rm-info-box" style="display:none;">
+          推定1RM＝1回だけ上げられる重量の目安（Epley式：重量×(1+回数/30)）。1〜5回→筋力アップ、6〜12回→筋肥大、15回以上→持久力が目安。回数が多いほど誤差は大きくなります。
+        </div>
         <div class="quick-rep-row">
           <button class="quick-btn" onclick="quickAddReps(3)">+3</button>
           <button class="quick-btn" onclick="quickAddReps(5)">+5</button>
@@ -808,7 +827,7 @@ function saveLog(){ localStorage.setItem(STORAGE_KEYS.log, JSON.stringify(workou
 function logSet(cat, name, weight, reps, note, isPR){
   const key = selectedDateKey;
   if(!workoutLog[key]) workoutLog[key] = [];
-  workoutLog[key].push({cat, name, weight, reps, note: note || "", pr: !!isPR});
+  workoutLog[key].push({cat, name, weight, reps, note: note || "", pr: !!isPR, rm: calc1RM(weight, reps)});
   saveLog();
 }
 function getPRs(){ return JSON.parse(localStorage.getItem(STORAGE_KEYS.pr) || "{}"); }
@@ -871,6 +890,27 @@ function weightProseText(kg){
 function weightStepperHTML(kg){
   const m = mainSubWeight(kg);
   return `${m.main}<span class="val-sub">(${m.sub}${m.subUnit})</span>`;
+}
+function calc1RM(weight, reps){
+  if(!weight || !reps || reps<=0) return 0;
+  if(reps===1) return Math.round(weight*10)/10;
+  return Math.round(weight*(1+reps/30)*10)/10;
+}
+function rmShortText(kg){
+  if(!kg) return "-";
+  const m = mainSubWeight(kg);
+  return `${m.main}${m.mainUnit}`;
+}
+function updateRMEstimate(){
+  const el = document.getElementById("rm-estimate-val");
+  if(!el) return;
+  const rm = calc1RM(stepVal.weight, stepVal.reps);
+  el.textContent = rm ? rmShortText(rm) : "-";
+}
+function toggleRMInfo(){
+  const box = document.getElementById("rm-info-box");
+  if(!box) return;
+  box.style.display = box.style.display === "none" ? "block" : "none";
 }
 function calcBMI(weightKg, heightCm){
   if(!weightKg || !heightCm) return null;
@@ -1045,6 +1085,7 @@ function onWeightWheelScroll(){
   document.getElementById("weight-val").innerHTML = weightStepperHTML(stepVal.weight);
   highlightWheelIndex("weight-wheel-int-items", Math.round(document.getElementById("weight-wheel-int").scrollTop/WHEEL_ITEM_H));
   highlightWheelIndex("weight-wheel-dec-items", Math.round(document.getElementById("weight-wheel-dec").scrollTop/WHEEL_ITEM_H));
+  updateRMEstimate();
 }
 
 function buildBodyWeightWheel(){
@@ -1078,6 +1119,7 @@ function onBodyFatWheelScroll(){
 function quickAddReps(n){
   stepVal.reps = Math.max(0, stepVal.reps + n);
   document.getElementById("reps-val").textContent = stepVal.reps;
+  updateRMEstimate();
 }
 function renderHandToggle(){
   const wrap = document.getElementById("hand-toggle");
@@ -1295,6 +1337,8 @@ function openExercise(ex){
   document.getElementById("record-set-view").classList.add("active");
   updateWeightDisplay();
   document.getElementById("reps-val").textContent = stepVal.reps;
+  document.getElementById("rm-info-box").style.display = "none";
+  updateRMEstimate();
   renderSetList();
   hideTimer();
 }
@@ -1313,6 +1357,7 @@ function copyPrev(){
   stepVal.reps = currentExercise.last.reps;
   updateWeightDisplay();
   document.getElementById("reps-val").textContent = stepVal.reps;
+  updateRMEstimate();
   if(currentExercise.last.note) document.getElementById("exercise-note").value = currentExercise.last.note;
 }
 function updateWeightDisplay(){
@@ -1334,11 +1379,13 @@ function changeVal(key, delta){
   stepVal[key] = Math.max(0, Math.round((stepVal[key] + delta)*10)/10);
   if(key==="weight"){ updateWeightDisplay(); }
   else{ document.getElementById(key+"-val").textContent = stepVal[key]; }
+  updateRMEstimate();
 }
 function addSet(){
   const note = document.getElementById("exercise-note").value.trim();
   const isPR = stepVal.weight > 0 && checkAndSavePR(currentExercise.name, stepVal.weight);
-  currentSets.push({weight:stepVal.weight, reps:stepVal.reps, done:false, pr:isPR});
+  const rm = calc1RM(stepVal.weight, stepVal.reps);
+  currentSets.push({weight:stepVal.weight, reps:stepVal.reps, done:false, pr:isPR, rm});
   renderSetList();
   startTimer();
   logSet(activeCat, currentExercise.name, stepVal.weight, stepVal.reps, note, isPR);
@@ -1352,7 +1399,7 @@ function renderSetList(){
   wrap.innerHTML = currentSets.map((s,i)=>`
     <div class="set-row">
       <span class="set-no">セット${i+1}</span>
-      <span>${weightProseText(s.weight)} × ${s.reps}回${s.pr?' 🏆':''}</span>
+      <span>${weightProseText(s.weight)} × ${s.reps}回${s.pr?' 🏆':''}<span class="set-rm">推定1RM ${rmShortText(s.rm)}</span></span>
       <span class="check ${s.done?'done':''}" onclick="toggleDone(${i})">${s.done?'✓':''}</span>
     </div>`).join("");
 }
